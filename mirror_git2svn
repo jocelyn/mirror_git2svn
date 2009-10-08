@@ -206,13 +206,13 @@ def revisions(a,b=None):
 		return execute_and_return_output("git rev-list %s..%s" % (a, b)).split("\n")
 
 def current_git_id():
-	global svnroot
+	global svnwc
 
 	old_env_git_dir = ''
 	if os.environ.has_key('GIT_DIR'):
 		old_env_git_dir = os.environ['GIT_DIR']
 
-	os.environ['GIT_DIR'] = os.path.join (svnroot, ".git")
+	os.environ['GIT_DIR'] = os.path.join (svnwc, ".git")
 	#ret = execute_and_return_output("git rev-list --max-count=1 HEAD").split("\n")
 	ret = execute_and_return_output("git rev-parse --verify HEAD").split("\n")
 
@@ -248,9 +248,47 @@ def resolved_date(d):
 	date = datetime.fromtimestamp(dt) #, FixedOffset(tzsecs/60))
 	return "%s %s" % (date, tz)
 
+def to_svndate(d):
+	data = d.split(" ")
+	tz = data.pop()
+	dt = string.atoi (data.pop())
+	
+	if tz[0] == '-':
+		tzh = -int(tz[0:3])
+		tzm = +int(tz[3:])
+	elif tz[0] == '+':
+		tzh = -int(tz[0:3])
+		tzm =  int(tz[3:])
+	else:
+		tzh = -int(tz[0:2])
+		tzm = -int(tz[2:])
+	date = datetime.fromtimestamp(dt) #, FixedOffset(tzsecs/60))
+	return "%s-%s-%sT%s:%s:%s.%sZ" % (date.year, date.month, date.day, date.hour + tzh, date.minute + tzm, date.second, date.microsecond)
+
+def to_svnauthor(a):
+	global svnauthor, svnauthor_map
+	if svnauthor_map.has_key (a):
+		ret = svnauthor_map[a]
+	else:
+		ret = svnauthor
+	if ret == None:
+		p = a.find ('<', 0)
+		if p > 0:
+			s = a[:p-1]
+			s.strip()
+			s = s.lower()
+			ret = ""
+			for c in s:
+				#print c
+				if c in string.ascii_lowercase or c in string.digits:
+					ret += c
+				elif c in string.whitespace:
+					ret += '_'
+	svnauthor_map[a] = ret
+	return ret
 
 def file_to_remove_from_subversion(rev):
-	global svnroot
+	global svnwc
 
 
 def commit_info(rev):
@@ -380,7 +418,7 @@ def process_hook(a_oldrev, a_newrev, a_ref):
 
 def process_main(a_newrev='HEAD', a_oldrev=None):
 	global gitrepo
-	global svnrepo, svnroot, svnmodule
+	global svnrepo, svnwc, svnmodule
 	global last_git_id
 
 	ret = execute_svn_cmd("ls %s" %(svnrepo))
@@ -392,17 +430,17 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 		else:
 			if len(svnmodule) > 0:
 				ret = execute_svn_cmd("mkdir -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
-				ret = execute_svn_cmd("checkout --quiet --ignore-externals %s/%s %s" % (svnrepo,svnmodule, svnroot))
-				ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnroot)
+				ret = execute_svn_cmd("checkout --quiet --ignore-externals %s/%s %s" % (svnrepo,svnmodule, svnwc))
+				ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
 
-	if folder_exists("%s/.git" % (svnroot)):
+	if folder_exists("%s/.git" % (svnwc)):
 		last_git_id = current_git_id()
-		ret = execute_git_cmd("pull --no-commit " , svnroot)
+		ret = execute_git_cmd("pull --no-commit " , svnwc)
 	else:
 		last_git_id = None
-		ret = execute_git_cmd("clone -n %s %s/.gittmp" % (gitrepo, svnroot))
-		ret = execute_cmd("mv .gittmp/.git .", svnroot)
-		ret = execute_cmd("\\rm -rf .gittmp", svnroot)
+		ret = execute_git_cmd("clone -n %s %s/.gittmp" % (gitrepo, svnwc))
+		ret = execute_cmd("mv .gittmp/.git .", svnwc)
+		ret = execute_cmd("\\rm -rf .gittmp", svnwc)
 
 	if a_oldrev != None:
 		refs = revisions (a_oldrev, a_newrev)
@@ -451,11 +489,15 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			svn_commit_cmd += " --with-revprop \"git-id=%s\" " % (r)
 			svn_commit_cmd += " --file %s \n" % (tmp_log_filename)
 			svn_commit_cmd += "svn update \n"
+			l_author = to_svnauthor (info['author'])
+			if l_author != None:
+				svn_commit_cmd += "svn propset svn:author \"%s\" --revprop -r HEAD \n" % (l_author)
+			svn_commit_cmd += "svn propset svn:date \"%s\" --revprop -r HEAD \n" % (to_svndate(info['author_date']))
 
 			cmds += "%s\n" % (svn_commit_cmd)
 
 			cmd_txt = "#!/bin/sh\n"
-			cmd_txt += "cd %s \n" % (svnroot)
+			cmd_txt += "cd %s \n" % (svnwc)
 			cmd_txt += "\necho Git operations\n"
 			cmd_txt += "GIT_DIR=`pwd`/.git \n"
 			cmd_txt += "git reset --hard  %s\n" % (r)
@@ -464,12 +506,12 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			cmd_txt += cmds
 			cmd_txt += "\necho Operations completed\n"
 
-			save_into (cmd_txt, os.path.join (svnroot, cmd_tmp_filename (r)))
+			save_into (cmd_txt, os.path.join (svnwc, cmd_tmp_filename (r)))
 
-			ret = execute_cmd("/bin/sh %s" % (cmd_tmp_filename(r)), svnroot)
+			ret = execute_cmd("/bin/sh %s" % (cmd_tmp_filename(r)), svnwc)
 			if not keep_tmp:
-				ret = execute_cmd("/bin/rm -f %s" % (cmd_tmp_filename(r)), svnroot)
-				ret = execute_cmd("/bin/rm -f %s" % (tmp_log_filename), svnroot)
+				ret = execute_cmd("/bin/rm -f %s" % (cmd_tmp_filename(r)), svnwc)
+				ret = execute_cmd("/bin/rm -f %s" % (tmp_log_filename), svnwc)
 
 			if len(cmds) > 0: out += "\nCommand to execute:\n%s\n" % cmds
 
@@ -480,14 +522,16 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 
 def initialize():
 	global gitrepo
-	os.makedirs(tmp_folder())
+	fn = tmp_folder()
+	if not os.path.exists(fn):
+		os.makedirs(fn)
 
 def get_config(a_cfg_fn, a_proj_name=None):
 	import ConfigParser
 
 	global verbose, keep_tmp
 	global project_name, tmpdir
-	global svnroot, svnrepo, svnmodule
+	global svnwc, svnrepo, svnmodule, svnauthor
 	global gitrepo, gitref, gitbare
 	global svngit_outputdir
 	global is_hook_processing
@@ -501,7 +545,7 @@ def get_config(a_cfg_fn, a_proj_name=None):
 	else:
 		project_name = config.get("default", "project")
 	svngit_outputdir = config.get(project_name, "outputdir")
-	svnroot = config.get(project_name, "svnroot")
+	svnwc = config.get(project_name, "svnwc")
 	svnrepo = config.get(project_name, "svnrepo")
 
 	if config.has_option (project_name, "tmpdir"):
@@ -510,6 +554,8 @@ def get_config(a_cfg_fn, a_proj_name=None):
 		verbose = config.getboolean(project_name, "verbose")
 	if config.has_option (project_name, "keep_tmp"):
 		keep_tmp = config.getboolean(project_name, "keep_tmp")
+	if config.has_option (project_name, "svnauthor"):
+		svnauthor = config.get(project_name, "svnauthor")
 	if config.has_option (project_name, "svnmodule"):
 		svnmodule = config.get(project_name, "svnmodule")
 	else:
@@ -531,7 +577,9 @@ def get_config(a_cfg_fn, a_proj_name=None):
 
 ### global variables ###
 project_name = None
-svnroot = None
+svnwc = None
+svnauthor_map = {}
+svnauthor = None
 svnrepo = None
 svnmodule = None
 gitbare = False
@@ -575,7 +623,7 @@ if __name__ == '__main__':
 		initialize()
 		if len(oldrev) > 0 and len(newrev) > 0 and len(ref) > 0:
 			# Launched as hook
-			if project_name and svngit_outputdir and svnroot and svnrepo and svnmodule and gitrepo and gitref:
+			if project_name and svngit_outputdir and svnwc and svnrepo and svnmodule and gitrepo and gitref:
 				config_ok = True
 			else:
 				config_ok = False
