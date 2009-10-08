@@ -7,8 +7,10 @@ import string;
 from datetime import datetime;
 
 def tmp_folder():
-	global project_name, svngit_outputdir
-	return os.path.join (svngit_outputdir, "%s.tmp" % (project_name))
+	global tmpdir, svngit_outputdir
+	if tmpdir == None:
+		tmpdir = os.path.join (svngit_outputdir, "tmp")
+	return tmpdir
 
 def log_filename():
 	global project_name
@@ -24,16 +26,30 @@ def global_commands_filename():
 	return os.path.join (tmp_folder(), "cmd.sh")
 
 def logthis_handle():
-	return open (log_filename(), 'a+')
+	global logthis_file
+	if logthis_file == None:
+		logthis_file = open (log_filename(), 'a+')
+	return logthis_file
+
+def logthis_handle_release(h):
+	h.flush()
+	#if h == logthis_file: logthis_file.close()
 
 def logthis(msg):
 	lf = logthis_handle()
 	lf.write ("%s\n" % (msg))
-	lf.close()
+	logthis_handle_release(lf)
+	#lf.close()
 
 def logthis_traceback(log):
 	import traceback;
 	traceback.print_exc(file=log)
+
+def save_into(txt, fn):
+	h = open (fn, "w")
+	h.write (txt)
+	h.write ('\n')
+	h.close()
 
 def output (m):
 	global verbose
@@ -86,9 +102,7 @@ cmd = remove_empty_for_git_folder(sys.argv[1])
 retcode = subprocess.call(cmd, 0, None, None, sys.stdout, sys.stderr, None, False, True)
 exit(retcode)
 """
-		lf = open (fn, 'w')
-		lf.write ("%s\n" % (txt))
-		lf.close()
+		save_into (txt, fn)
 
 
 def exit_on_unexpected_case(m):
@@ -170,7 +184,7 @@ def execute_cmd(a_cmd, a_wd="", a_out=None, a_msg="", exit_on_error=0):
 					log_txt += "Exit on Error (%s)" % (err)
 					sys.exit()
 
-	l_log.close
+	logthis_handle_release(l_log)
 	if len(log_txt) > 0:
 		logthis (log_txt)
 	return r
@@ -412,10 +426,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			log = "%s-- Date: %s" % (log, resolved_date(date))
 
 			tmp_log_filename = svn_tmp_log_filename (r)
-			cmd_file = open (tmp_log_filename, "w")
-			cmd_file.write (log)
-			cmd_file.write ("\n")
-			cmd_file.close()
+			save_into (log, tmp_log_filename)
 
 			log = log.replace ("\n", "\n:\t")
 			out += "DATE=%s\n" % resolved_date (info['author_date'])
@@ -453,9 +464,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			cmd_txt += cmds
 			cmd_txt += "\necho Operations completed\n"
 
-			cmd_file = open (os.path.join (svnroot, cmd_tmp_filename (r)), "w")
-			cmd_file.write (cmd_txt)
-			cmd_file.close()
+			save_into (cmd_txt, os.path.join (svnroot, cmd_tmp_filename (r)))
 
 			ret = execute_cmd("/bin/sh %s" % (cmd_tmp_filename(r)), svnroot)
 			if not keep_tmp:
@@ -467,16 +476,17 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			output (out)
 
 	if keep_tmp:
-		a_file = open (global_commands_filename(), "w")
-		a_file.write (global_commands)
-		a_file.write ("\n")
-		a_file.close()
+		save_into (global_commands, global_commands_filename())
+
+def initialize():
+	global gitrepo
+	os.makedirs(tmp_folder())
 
 def get_config(a_cfg_fn, a_proj_name=None):
 	import ConfigParser
 
 	global verbose, keep_tmp
-	global project_name
+	global project_name, tmpdir
 	global svnroot, svnrepo, svnmodule
 	global gitrepo, gitref, gitbare
 	global svngit_outputdir
@@ -494,6 +504,8 @@ def get_config(a_cfg_fn, a_proj_name=None):
 	svnroot = config.get(project_name, "svnroot")
 	svnrepo = config.get(project_name, "svnrepo")
 
+	if config.has_option (project_name, "tmpdir"):
+		tmpdir = config.get(project_name, "tmpdir")
 	if config.has_option (project_name, "verbose"):
 		verbose = config.getboolean(project_name, "verbose")
 	if config.has_option (project_name, "keep_tmp"):
@@ -526,6 +538,7 @@ gitbare = False
 gitrepo = None
 gitref = "refs/heads/master"
 svngit_outputdir = "/home/git/output"
+tmpdir = None
 
 verbose = False
 keep_tmp = False
@@ -533,6 +546,7 @@ last_git_id = None
 last_cwd = None
 global_commands = None
 is_hook_processing = True
+logthis_file=None
 
 if __name__ == '__main__':
 	# from hook (oldrev, newrev, ref) = (sys.stdin.read()).split()
@@ -553,9 +567,12 @@ if __name__ == '__main__':
 		config_name = sys.argv[4]
 		if len(sys.argv) > 5:
 			project_name = sys.argv[5]
-	if project_name:
+	if config_name:
+		if config_name.find(".config") > 0:
+			config_name = config_name[:-len(".config")]
 		#print "CONFIG=%s PROJ=%s" % (config_name, project_name)
 		get_config("%s.config" % (config_name), project_name)
+		initialize()
 		if len(oldrev) > 0 and len(newrev) > 0 and len(ref) > 0:
 			# Launched as hook
 			if project_name and svngit_outputdir and svnroot and svnrepo and svnmodule and gitrepo and gitref:
