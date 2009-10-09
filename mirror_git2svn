@@ -248,22 +248,47 @@ def resolved_date(d):
 	date = datetime.fromtimestamp(dt) #, FixedOffset(tzsecs/60))
 	return "%s %s" % (date, tz)
 
+current_timezone_offset_values=None
+def current_timezone_offset():
+	global current_timezone_offset_values
+	if current_timezone_offset_values == None:
+		s = execute_and_return_output("date -R")
+		p = s.rfind (' ')
+		if p > 0:
+			current_timezone_offset_values = timezone_offset(s[p+1:])
+		else:
+			current_timezone_offset_values = ''
+	return current_timezone_offset_values
+
+def timezone_offset(tz):
+	if tz == None or tz == '':
+		return (0,0)
+	else:
+		if tz[0] == '-':
+			tzh = -abs(int(tz[0:3]))
+			tzm = -int(tz[3:])
+		elif tz[0] == '+':
+			tzh = +abs(int(tz[0:3]))
+			tzm = +int(tz[3:])
+		else:
+			tzh = +abs(int(tz[0:2]))
+			tzm = +int(tz[2:])
+		return (tzh, tzm)
+
 def to_svndate(d):
 	data = d.split(" ")
 	tz = data.pop()
 	dt = string.atoi (data.pop())
-	
-	if tz[0] == '-':
-		tzh = -int(tz[0:3])
-		tzm = +int(tz[3:])
-	elif tz[0] == '+':
-		tzh = -int(tz[0:3])
-		tzm =  int(tz[3:])
-	else:
-		tzh = -int(tz[0:2])
-		tzm = -int(tz[2:])
-	date = datetime.fromtimestamp(dt) #, FixedOffset(tzsecs/60))
-	return "%s-%s-%sT%s:%s:%s.%sZ" % (date.year, date.month, date.day, date.hour + tzh, date.minute + tzm, date.second, date.microsecond)
+	(tzh, tzm) = timezone_offset(tz)
+	(ctzh, ctzm) = current_timezone_offset()
+	print "d=%s\ttz: h=(%d|%d)  \tm=(%d|%d)" % (d, tzh, ctzh, tzm, ctzm)
+
+	tzh = 0
+	tzm = 0
+	date = datetime.fromtimestamp(dt)
+	print ("date=%s" % (date.isoformat()))
+	datestr = "%4s-%2s-%2sT%2s:%2s:%2s.%6sZ" % (date.year, date.month, date.day, date.hour - tzh - ctzh, date.minute - tzm - ctzm, date.second, date.microsecond)
+	return datestr.replace (" ", "0")
 
 def to_svnauthor(a):
 	global svnauthor, svnauthor_map
@@ -435,7 +460,11 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 
 	if folder_exists("%s/.git" % (svnwc)):
 		last_git_id = current_git_id()
-		ret = execute_git_cmd("pull --no-commit " , svnwc)
+		if is_hook_processing:
+			# CHECK THIS
+			ret = execute_git_cmd("pull --no-commit " , svnwc)
+		else:
+			ret = execute_git_cmd("fetch " , svnwc)
 	else:
 		last_git_id = None
 		ret = execute_git_cmd("clone -n %s %s/.gittmp" % (gitrepo, svnwc))
