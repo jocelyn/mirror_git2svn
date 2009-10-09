@@ -279,16 +279,14 @@ def to_svndate(d):
 	data = d.split(" ")
 	tz = data.pop()
 	dt = string.atoi (data.pop())
-	(tzh, tzm) = timezone_offset(tz)
+	(tzh, tzm) = (0,0)
+	#(tzh, tzm) = timezone_offset(tz)
 	(ctzh, ctzm) = current_timezone_offset()
-	print "d=%s\ttz: h=(%d|%d)  \tm=(%d|%d)" % (d, tzh, ctzh, tzm, ctzm)
-
-	tzh = 0
-	tzm = 0
 	date = datetime.fromtimestamp(dt)
-	print ("date=%s" % (date.isoformat()))
-	datestr = "%4s-%2s-%2sT%2s:%2s:%2s.%6sZ" % (date.year, date.month, date.day, date.hour - tzh - ctzh, date.minute - tzm - ctzm, date.second, date.microsecond)
-	return datestr.replace (" ", "0")
+	date.replace(hour=date.hour -tzh - ctzh, minute=date.minute - tzm - ctzm)
+	return date.isoformat()
+	#datestr = "%4s-%2s-%2sT%2s:%2s:%2s.%6sZ" % (date.year, date.month, date.day, date.hour - tzh - ctzh, date.minute - tzm - ctzm, date.second, date.microsecond)
+	#return datestr.replace (" ", "0")
 
 def to_svnauthor(a):
 	global svnauthor, svnauthor_map
