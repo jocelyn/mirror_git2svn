@@ -475,10 +475,13 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 		refs = revisions (last_git_id, a_newrev)
 	refs.reverse()
 
+	refs_count = len(refs) - 1
+	refs_index = 0
 	for r in refs:
 		if len(r) > 5:
 			if not is_hook_processing:
-				output(" - %s" %(r))
+				refs_index = refs_index + 1
+				output(" - %s: %d/%d" %(r, refs_index, refs_count))
 			out = "-------------------------\n"
 			info = commit_info(r)
 			author = info['author']
