@@ -31,29 +31,40 @@ def logthis_handle():
 		logthis_file = open (log_filename(), 'a+')
 	return logthis_file
 
-def logthis_handle_release(h):
-	h.flush()
-	#if h == logthis_file: logthis_file.close()
+def logthis_handle_release(h=None):
+	global logthis_file
+	hdl = h
+	if hdl == None:
+		hdl = logthis_file 
+	if hdl != None:
+		hdl.flush()
 
 def logthis(msg):
-	lf = logthis_handle()
-	lf.write ("%s\n" % (msg))
-	logthis_handle_release(lf)
-	#lf.close()
+	global logging
+	if logging:
+		lf = logthis_handle()
+		lf.write ("%s\n" % (msg))
+		logthis_handle_release(lf)
+		#lf.close()
 
 def logthis_traceback(log):
 	import traceback;
 	traceback.print_exc(file=log)
 
-def save_into(txt, fn):
+def save_into(txt, fn, with_nl=True):
 	h = open (fn, "w")
 	h.write (txt)
-	h.write ('\n')
+	if with_nl:
+		h.write ('\n')
 	h.close()
 
-def output (m):
+def doutput (m):
 	global verbose
 	if verbose: print (m)
+	logthis(m)
+
+def output (m):
+	print (m)
 	logthis(m)
 
 def remove_empty_folder_for_git_script_filename():
@@ -237,16 +248,18 @@ def text_date(s):
 	else:
 		return [s, None]
 
-def resolved_date(d):
+def to_svndate(d):
 	data = d.split(" ")
 	tz = data.pop()
 	dt = string.atoi (data.pop())
-#		tzsecs = abs(tz)
-#                tzsecs = (tzsecs / 100 * 60 + tzsecs % 100) * 60
-#                if tz < 0:
-#                    tzsecs = -tzsecs
-	date = datetime.fromtimestamp(dt) #, FixedOffset(tzsecs/60))
-	return "%s %s" % (date, tz)
+	(tzh, tzm) = (0,0)
+	#(tzh, tzm) = timezone_offset(tz)
+	(ctzh, ctzm) = current_timezone_offset()
+	date = datetime.fromtimestamp(dt)
+	h = date.hour - tzh - ctzh
+	m = date.minute - tzm - ctzm
+	date = date.replace(hour=h, minute=m)
+	return "%s.Z" % (date.isoformat())
 
 current_timezone_offset_values=None
 def current_timezone_offset():
@@ -275,18 +288,6 @@ def timezone_offset(tz):
 			tzm = +int(tz[2:])
 		return (tzh, tzm)
 
-def to_svndate(d):
-	data = d.split(" ")
-	tz = data.pop()
-	dt = string.atoi (data.pop())
-	(tzh, tzm) = (0,0)
-	#(tzh, tzm) = timezone_offset(tz)
-	(ctzh, ctzm) = current_timezone_offset()
-	date = datetime.fromtimestamp(dt)
-	date.replace(hour=date.hour -tzh - ctzh, minute=date.minute - tzm - ctzm)
-	return date.isoformat()
-	#datestr = "%4s-%2s-%2sT%2s:%2s:%2s.%6sZ" % (date.year, date.month, date.day, date.hour - tzh - ctzh, date.minute - tzm - ctzm, date.second, date.microsecond)
-	#return datestr.replace (" ", "0")
 
 def to_svnauthor(a):
 	global svnauthor, svnauthor_map
@@ -302,7 +303,6 @@ def to_svnauthor(a):
 			s = s.lower()
 			ret = ""
 			for c in s:
-				#print c
 				if c in string.ascii_lowercase or c in string.digits:
 					ret += c
 				elif c in string.whitespace:
@@ -391,7 +391,6 @@ def commit_info(rev):
 						(f1, f2) = line[p+1:].split("\t")
 						copied.append ([f1, f2])
 						score = line[1:p]
-						#print "score=%s" % (score)
 						if score == "100" and 0: # disabled since the file will already be there...
 							commands.append ("svn copy %s %s" % (f1, f2))
 						else:
@@ -429,15 +428,14 @@ def commit_info(rev):
 def process_hook(a_oldrev, a_newrev, a_ref):
 	global gitrepo, gitref
 
-	output ("----post-receive:start----")
-	output ("GITREPO=%s \n" % (gitrepo))
-	output ("OLDREV=%s NEWREV=%s REF=%s\n" % (oldrev, newrev, a_ref))
+	doutput ("----post-receive:start----")
+	doutput ("GITREPO=%s OLDREV=%s NEWREV=%s REF=%s\n" % (gitrepo, oldrev, newrev, a_ref))
 	if a_ref != gitref:
-		output ("Branch other than [%s] are not mirrored\n" % (gitref))
+		doutput ("Branch other than [%s] are not mirrored\n" % (gitref))
 	else:
 		process_main(a_newrev, a_oldrev)
 
-	output ("----post-receive:end----")
+	doutput ("----post-receive:end----")
 
 def process_main(a_newrev='HEAD', a_oldrev=None):
 	global gitrepo
@@ -446,10 +444,10 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 
 	ret = execute_svn_cmd("ls %s" %(svnrepo))
 	if ret:
-		output ("Create svn repo [%s]..." % (svnrepo))
+		doutput ("Create svn repo [%s]..." % (svnrepo))
 		ret = execute_svnadmin_cmd("create --fs-type fsfs %s" % (svnrepo[len("file://"):]))
 		if ret:
-			output ("Error when creating subversion repo [retcode=%s]" % (ret))
+			doutput ("Error when creating subversion repo [retcode=%s]" % (ret))
 		else:
 			if len(svnmodule) > 0:
 				ret = execute_svn_cmd("mkdir -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
@@ -479,6 +477,8 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 
 	for r in refs:
 		if len(r) > 5:
+			if not is_hook_processing:
+				output(" - %s" %(r))
 			out = "-------------------------\n"
 			info = commit_info(r)
 			author = info['author']
@@ -487,15 +487,13 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 				out += "ERROR: not the same ref\n"
 			log = info['log']
 			log = "%s\n\n-- Git-id: %s\n" % (log, info['commit'])
-			log = "%s-- Author: %s\n" % (log, author)
-			log = "%s-- Date: %s" % (log, resolved_date(date))
+			log = "%s-- Git-author: %s" % (log, author)
+			##log = "%s-- Date: %s" % (log, to_svndate(date))
 
 			tmp_log_filename = svn_tmp_log_filename (r)
-			save_into (log, tmp_log_filename)
+			save_into (log, tmp_log_filename, False)
 
-			log = log.replace ("\n", "\n:\t")
-			out += "DATE=%s\n" % resolved_date (info['author_date'])
-			out += ":\t%s\n" % log
+			out += "%s\n" % log
 
 			cmds = ""
 			if info.has_key('commands'):
@@ -541,8 +539,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 				ret = execute_cmd("/bin/rm -f %s" % (tmp_log_filename), svnwc)
 
 			if len(cmds) > 0: out += "\nCommand to execute:\n%s\n" % cmds
-
-			output (out)
+			doutput (out)
 
 	if keep_tmp:
 		save_into (global_commands, global_commands_filename())
@@ -556,7 +553,7 @@ def initialize():
 def get_config(a_cfg_fn, a_proj_name=None):
 	import ConfigParser
 
-	global verbose, keep_tmp
+	global logging, verbose, keep_tmp
 	global project_name, tmpdir
 	global svnwc, svnrepo, svnmodule, svnauthor
 	global gitrepo, gitref, gitbare
@@ -577,6 +574,8 @@ def get_config(a_cfg_fn, a_proj_name=None):
 
 	if config.has_option (project_name, "tmpdir"):
 		tmpdir = config.get(project_name, "tmpdir")
+	if config.has_option (project_name, "log"):
+		logging = config.getboolean(project_name, "log")
 	if config.has_option (project_name, "verbose"):
 		verbose = config.getboolean(project_name, "verbose")
 	if config.has_option (project_name, "keep_tmp"):
@@ -615,6 +614,7 @@ gitref = "refs/heads/master"
 svngit_outputdir = "/home/git/output"
 tmpdir = None
 
+logging = False
 verbose = False
 keep_tmp = False
 last_git_id = None
@@ -645,7 +645,6 @@ if __name__ == '__main__':
 	if config_name:
 		if config_name.find(".config") > 0:
 			config_name = config_name[:-len(".config")]
-		#print "CONFIG=%s PROJ=%s" % (config_name, project_name)
 		get_config("%s.config" % (config_name), project_name)
 		initialize()
 		if len(oldrev) > 0 and len(newrev) > 0 and len(ref) > 0:
@@ -661,4 +660,6 @@ if __name__ == '__main__':
 		else:
 			os.environ['GIT_DIR'] = gitrepo
 			process_main ()
+
+	logthis_handle_release()
 
