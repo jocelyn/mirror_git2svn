@@ -442,17 +442,30 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 	global svnrepo, svnwc, svnmodule
 	global last_git_id
 
-	ret = execute_svn_cmd("ls %s" %(svnrepo))
-	if ret:
-		doutput ("Create svn repo [%s]..." % (svnrepo))
-		ret = execute_svnadmin_cmd("create --fs-type fsfs %s" % (svnrepo[len("file://"):]))
-		if ret:
-			doutput ("Error when creating subversion repo [retcode=%s]" % (ret))
-		else:
-			if len(svnmodule) > 0:
-				ret = execute_svn_cmd("mkdir -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
-				ret = execute_svn_cmd("checkout --quiet --ignore-externals %s/%s %s" % (svnrepo,svnmodule, svnwc))
-				ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
+	if not folder_exists("%s/.svn" % (svnwc)):
+		ret = execute_svn_cmd("ls %s" %(svnrepo))
+		if ret: # repo does not exists (or not accessible
+			doutput ("Create svn repo [%s]..." % (svnrepo))
+			ret = execute_svnadmin_cmd("create --fs-type fsfs %s" % (svnrepo[len("file://"):]))
+			if ret:
+				doutput ("Error when creating subversion repo [retcode=%s]" % (ret))
+			else:
+				if svnroot:
+					svnhook_fn = os.path.join (svnroot, "hooks", "pre-revprop-change")
+					save_into("#!/bin/sh\nexit 0;", svnhook_fn)
+					ret = execute_and_return_output("chmod a+x %s" % (svnhook_fn))
+				if len(svnmodule) > 0:
+					ret = execute_svn_cmd("mkdir -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
+					ret = execute_svn_cmd("checkout --quiet --ignore-externals %s/%s %s" % (svnrepo,svnmodule, svnwc))
+					ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
+		else: # repo exists, let's checkout it
+			ret = execute_svn_cmd("checkout %s%s %s" % (svnrepo,svnmodule, svnwc))
+			if ret:
+				doutput ("Error when checkout subversion repo [retcode=%s]" % (ret))
+
+	if not folder_exists("%s/.svn" % (svnwc)):
+		doutput("Subversion working copy does not exists")
+		sys.exit()
 
 	if folder_exists("%s/.git" % (svnwc)):
 		last_git_id = current_git_id()
@@ -475,13 +488,13 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 		refs = revisions (last_git_id, a_newrev)
 	refs.reverse()
 
-	refs_count = len(refs) - 1
+	refs_count = len(refs)
 	refs_index = 0
 	for r in refs:
+		if not is_hook_processing:
+			refs_index = refs_index + 1
+			output(" [%d/%d] %s" %(refs_index, refs_count, r))
 		if len(r) > 5:
-			if not is_hook_processing:
-				refs_index = refs_index + 1
-				output(" - %s: %d/%d" %(r, refs_index, refs_count))
 			out = "-------------------------\n"
 			info = commit_info(r)
 			author = info['author']
@@ -489,10 +502,11 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			if r != info['commit']:
 				out += "ERROR: not the same ref\n"
 			log = info['log']
-			log = "%s\n\n-- Git-id: %s\n" % (log, info['commit'])
-			log = "%s-- Git-author: %s" % (log, author)
-			##log = "%s-- Date: %s" % (log, to_svndate(date))
-
+			log = "%s\n" % (log)
+			log = "\n%s-- Git-author: %s" % (log, author)
+			log = "\n%s-- Git-id: %s" % (log, info['commit'])
+			##log = "\n%s-- Date: %s" % (log, to_svndate(date))
+			
 			tmp_log_filename = svn_tmp_log_filename (r)
 			save_into (log, tmp_log_filename, False)
 
@@ -512,15 +526,15 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 					for d in info_deleted:
 						cmds += "python %s \"%s\" \n" % (remove_empty_folder_for_git_script_filename(), d)
 
-			svn_commit_cmd = "svn commit "
+			svn_commit_cmd = "svn %s commit " % (svnoptions)
 			svn_commit_cmd += " --with-revprop \"original-author=%s\" " % (info['author'])
 			svn_commit_cmd += " --with-revprop \"git-id=%s\" " % (r)
 			svn_commit_cmd += " --file %s \n" % (tmp_log_filename)
 			svn_commit_cmd += "svn update \n"
 			l_author = to_svnauthor (info['author'])
 			if l_author != None:
-				svn_commit_cmd += "svn propset svn:author \"%s\" --revprop -r HEAD \n" % (l_author)
-			svn_commit_cmd += "svn propset svn:date \"%s\" --revprop -r HEAD \n" % (to_svndate(info['author_date']))
+				svn_commit_cmd += "svn %s propset svn:author \"%s\" --revprop -r HEAD \n" % (svnoptions, l_author)
+			svn_commit_cmd += "svn %s propset svn:date \"%s\" --revprop -r HEAD \n" % (svnoptions, to_svndate(info['author_date']))
 
 			cmds += "%s\n" % (svn_commit_cmd)
 
@@ -559,6 +573,7 @@ def get_config(a_cfg_fn, a_proj_name=None):
 	global logging, verbose, keep_tmp
 	global project_name, tmpdir
 	global svnwc, svnrepo, svnmodule, svnauthor
+	global svnroot, svnoptions
 	global gitrepo, gitref, gitbare
 	global svngit_outputdir
 	global is_hook_processing
@@ -574,6 +589,11 @@ def get_config(a_cfg_fn, a_proj_name=None):
 	svngit_outputdir = config.get(project_name, "outputdir")
 	svnwc = config.get(project_name, "svnwc")
 	svnrepo = config.get(project_name, "svnrepo")
+
+	if config.has_option (project_name, "svnroot"):
+		svnroot = config.get(project_name, "svnroot")
+	if config.has_option (project_name, "svnoptions"):
+		svnoptions = config.get(project_name, "svnoptions")
 
 	if config.has_option (project_name, "tmpdir"):
 		tmpdir = config.get(project_name, "tmpdir")
@@ -614,7 +634,9 @@ svnmodule = None
 gitbare = False
 gitrepo = None
 gitref = "refs/heads/master"
-svngit_outputdir = "/home/git/output"
+svngit_outputdir = "/tmp/git2svn/output"
+svnroot = None
+svnoptions = ''
 tmpdir = None
 
 logging = False
