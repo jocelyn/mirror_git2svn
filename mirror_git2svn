@@ -439,7 +439,7 @@ def process_hook(a_oldrev, a_newrev, a_ref):
 
 def process_main(a_newrev='HEAD', a_oldrev=None):
 	global gitrepo
-	global svnrepo, svnwc, svnmodule
+	global svnrepo, svnwc, svnmodule, svnroot, svnoptions
 	global last_git_id
 
 	if not folder_exists("%s/.svn" % (svnwc)):
@@ -630,7 +630,7 @@ svnwc = None
 svnauthor_map = {}
 svnauthor = None
 svnrepo = None
-svnmodule = None
+svnmodule = ''
 gitbare = False
 gitrepo = None
 gitref = "refs/heads/master"
@@ -674,7 +674,7 @@ if __name__ == '__main__':
 		initialize()
 		if len(oldrev) > 0 and len(newrev) > 0 and len(ref) > 0:
 			# Launched as hook
-			if project_name and svngit_outputdir and svnwc and svnrepo and svnmodule and gitrepo and gitref:
+			if project_name and svngit_outputdir and svnwc and svnrepo and gitrepo and gitref:
 				config_ok = True
 			else:
 				config_ok = False
@@ -682,6 +682,13 @@ if __name__ == '__main__':
 				process_hook (oldrev, newrev, ref)
 			else:
 				print "[hook:post-receive] Configuration is invalid"
+				print "project_name=%s" % project_name
+				print "svngit_outputdir=%s" % svngit_outputdir
+				print "svnwc=%s" % svnwc
+				print "svnrepo=%s" % svnrepo
+				print "svnmodule=%s" % svnmodule
+				print "gitrepo=%s" % gitrepo
+				print "gitref=%s" % gitref
 		else:
 			os.environ['GIT_DIR'] = gitrepo
 			process_main ()
