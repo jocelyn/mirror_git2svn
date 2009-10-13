@@ -596,6 +596,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 		save_into (global_commands, global_commands_filename())
 
 def config_value(a_cfg, a_option, a_section='default', a_default=None, a_type='string'):
+	ret = None
 	if a_cfg.has_option (a_section, a_option):
 		if a_type == 'string':
 			ret = a_cfg.get(a_section, a_option)
