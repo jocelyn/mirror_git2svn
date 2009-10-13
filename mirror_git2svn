@@ -240,7 +240,10 @@ def git_revisions(a,b=None):
 		l_out = git_execute_and_return_output("rev-list %s" % (a)).split("\n")
 	else:
 		l_out = git_execute_and_return_output("rev-list %s..%s" % (a, b)).split("\n")
+	if len(l_out[0]) == 0:
+		l_out = l_out[1:]
 	return l_out
+		
 
 def current_git_id():
 	#ret = git_execute_and_return_output("rev-list --max-count=1 HEAD").split("\n")
@@ -595,11 +598,11 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 def config_value(a_cfg, a_option, a_section='default', a_default=None, a_type='string'):
 	if a_cfg.has_option (a_section, a_option):
 		if a_type == 'string':
-			ret = config.get(a_section, a_option)
+			ret = a_cfg.get(a_section, a_option)
 		elif a_type =='boolean':
-			ret = config.getboolean(a_section, a_option)
+			ret = a_cfg.getboolean(a_section, a_option)
 		elif a_type == 'int':
-			ret = config.getint(a_section, a_option)
+			ret = a_cfg.getint(a_section, a_option)
 	elif a_section != 'default':
 		ret = config_value(a_cfg, a_option, a_type, 'default', a_default)
 	elif a_default != None:
