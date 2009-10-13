@@ -4,7 +4,7 @@ import sys;
 import re;
 import os;
 import string;
-from datetime import datetime;
+from datetime import datetime, timedelta;
 
 def tmp_folder():
 	global tmpdir, svngit_outputdir
@@ -276,9 +276,12 @@ def to_svndate(d):
 	#(tzh, tzm) = timezone_offset(tz)
 	(ctzh, ctzm) = current_timezone_offset()
 	date = datetime.fromtimestamp(dt)
-	h = date.hour - tzh - ctzh
-	m = date.minute - tzm - ctzm
-	date = date.replace(hour=h, minute=m)
+	h = - tzh - ctzh
+	m = - tzm - ctzm
+	date = date + timedelta (hours=h, minutes=m)
+	#h = date.hour - tzh - ctzh
+	#m = date.minute - tzm - ctzm
+	#date = date.replace(hour=h, minute=m)
 	return "%s.Z" % (date.isoformat())
 
 current_timezone_offset_values=None
