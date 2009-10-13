@@ -496,7 +496,8 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			# CHECK THIS
 			ret = execute_git_cmd("pull --no-commit " , svnwc)
 		else:
-			ret = execute_git_cmd("fetch " , svnwc)
+			ret = execute_git_cmd("pull --no-commit " , svnwc)
+			#ret = execute_git_cmd("fetch " , svnwc)
 	else:
 		if not last_git_id:
 			last_git_id = None
