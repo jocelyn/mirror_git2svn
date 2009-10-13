@@ -369,7 +369,6 @@ def commit_info(rev,prev=None):
 		
 	s = git_commit_changes(rev,prev)
 	lines = s.split("\n")
-	ref = None
 	modified = [] # M file , T file
 	copied = [] #C file1 file2
 	renamed = [] #R file1 file2
@@ -379,6 +378,7 @@ def commit_info(rev,prev=None):
 	unknown = [] # X  ERROR !
 	commands = []
 	
+	ref = rev
 	for a_line in lines:
 		if ref == None:
 			ref = a_line
@@ -474,12 +474,11 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 					svnhook_fn = os.path.join (svnroot, "hooks", "pre-revprop-change")
 					save_into("#!/bin/sh\nexit 0;", svnhook_fn)
 					ret = execute_and_return_output("chmod a+x %s" % (svnhook_fn))
-				if len(svnmodule) > 0:
-					ret = execute_svn_cmd("mkdir -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
-					ret = execute_svn_cmd("checkout --quiet --ignore-externals %s/%s %s" % (svnrepo,svnmodule, svnwc))
-					ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
+				ret = execute_svn_cmd("mkdir -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
+				ret = execute_svn_cmd("checkout --quiet --ignore-externals %s%s %s" % (svnrepo,svnmodule, svnwc))
+				ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
 		else: # repo exists, let's checkout it
-			ret = execute_svn_cmd("checkout %s%s %s" % (svnrepo,svnmodule, svnwc))
+			ret = execute_svn_cmd("checkout --quiet --ignore-externals %s%s %s" % (svnrepo,svnmodule, svnwc))
 			if ret:
 				doutput ("Error when checkout subversion repo [retcode=%s]" % (ret))
 
@@ -560,6 +559,13 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 					new_remove_empty_folder_for_git_script()
 					for d in info_deleted:
 						cmds += "python %s \"%s\" \n" % (remove_empty_folder_for_git_script_filename(), d)
+				if info_path.has_key('renamed'):
+					info_renamed = info_path['renamed']
+					new_remove_empty_folder_for_git_script()
+					for (d,t) in info_renamed:
+						cmds += "python %s \"%s\" \n" % (remove_empty_folder_for_git_script_filename(), d)
+
+			doutput("Commands=%s\n" % (cmds))
 
 			svn_commit_cmd = "svn %s commit " % (svnoptions)
 			svn_commit_cmd += " --with-revprop \"original-author=%s\" " % (info['author'])
