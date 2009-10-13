@@ -17,6 +17,6 @@
 while read oldrev newrev ref
 do
 	#echo $oldrev $newrev $ref
-	python /home/jfiat/work/git/test-svn-git/hooks/mirror_git2svn $oldrev $newrev $ref git2svn test-svngit
+	python /home/jfiat/work/git/test-svn-git/hooks/mirror_git2svn $oldrev $newrev $ref git2svn example --hook
 done
 
