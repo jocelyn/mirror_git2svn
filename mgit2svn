@@ -1,0 +1,738 @@
+#!/usr/bin/python
+
+import sys;
+import re;
+import os;
+import string;
+from datetime import datetime;
+
+def tmp_folder():
+	global tmpdir, svngit_outputdir
+	if tmpdir == None:
+		tmpdir = os.path.join (svngit_outputdir, "tmp")
+	return tmpdir
+
+def log_filename():
+	global project_name
+	return os.path.join (tmp_folder(), "log")
+
+def svn_tmp_log_filename(r):
+	return os.path.join (tmp_folder(), "svngit_%s" % (r))
+
+def cmd_tmp_filename(r):
+	return os.path.join (tmp_folder(), "cmd-%s" % (r))
+
+def global_commands_filename():
+	return os.path.join (tmp_folder(), "cmd.sh")
+
+def logthis_handle():
+	global logthis_file
+	if logthis_file == None:
+		logthis_file = open (log_filename(), 'a+')
+	return logthis_file
+
+def logthis_handle_release(h=None):
+	global logthis_file
+	hdl = h
+	if hdl == None:
+		hdl = logthis_file 
+	if hdl != None:
+		hdl.flush()
+
+def logthis(msg):
+	global logging
+	if logging:
+		lf = logthis_handle()
+		lf.write ("%s\n" % (msg))
+		logthis_handle_release(lf)
+		#lf.close()
+
+def logthis_traceback(log):
+	import traceback;
+	traceback.print_exc(file=log)
+
+def save_into(txt, fn, with_nl=True):
+	h = open (fn, "w")
+	h.write (txt)
+	if with_nl:
+		h.write ('\n')
+	h.close()
+
+def doutput (m):
+	global verbose
+	if verbose: print (m)
+	logthis(m)
+
+def output (m):
+	print (m)
+	logthis(m)
+
+def remove_empty_folder_for_git_script_filename():
+	return os.path.join (tmp_folder(), "remove_empty_folder_for_git_script.py")
+
+def new_remove_empty_folder_for_git_script():
+	fn = remove_empty_folder_for_git_script_filename()
+	if not os.path.exists (fn):
+		txt = """
+#!/usr/bin/python
+
+import sys
+import os
+import subprocess 
+
+
+def folder_is_empty_for_git(dn):
+	if os.path.exists(dn):
+		nodes = os.listdir(dn)
+		if len (nodes) == 0:
+			return True
+		elif len(nodes) == 1:
+			return ".svn" in nodes
+
+def remove_empty_for_git_folder (a_path):
+    l_cmd = ""
+    (dn, fn) = os.path.split (a_path)
+    if len(dn) > 0 and len(fn) > 0:
+        if os.path.exists(dn):
+            nodes = os.listdir(dn)
+            n = len(nodes)
+            is_empty = False
+            if n == 0: 
+                is_empty = True
+            elif n == 1: 
+                is_empty = '.svn' in nodes or fn in nodes
+            elif n == 2: 
+                is_empty = '.svn' in nodes and fn in nodes
+            if is_empty: 
+                l_cmd = remove_empty_for_git_folder (dn)
+                if len (l_cmd) == 0:
+                    l_cmd = "svn remove --force %s\\n" % (dn)
+    return l_cmd   			
+			
+cmd = remove_empty_for_git_folder(sys.argv[1])
+retcode = subprocess.call(cmd, 0, None, None, sys.stdout, sys.stderr, None, False, True)
+exit(retcode)
+"""
+		save_into (txt, fn)
+
+
+def exit_on_unexpected_case(m):
+	output("[unknown] found.\n")
+	sys.exit(-1)
+
+def add_operation (a_cmd, a_dir=None):
+	global last_cwd, global_commands
+
+	if keep_tmp:
+		if global_commands == None:
+			global_commands = "#!/bin/sh\n\n"
+		if a_dir != None and a_dir != last_cwd:
+			last_cwd = a_dir
+			global_commands += "cd %s\n" % (last_cwd)
+		global_commands += "%s\n" % (a_cmd)
+
+def execute_svnadmin_cmd (a_svn_cmd, a_wd=None):
+	ret = execute_cmd("/usr/bin/svnadmin %s" % (a_svn_cmd) , a_wd)
+	return ret
+
+def execute_svn_cmd (a_svn_cmd, a_wd=None, a_out=None):
+	ret = execute_cmd("/usr/bin/svn %s" % (a_svn_cmd) , a_wd, a_out)
+	return ret
+
+def execute_git_cmd (a_git_cmd, a_wd=None, a_out=None):
+	old_env_git_dir = ''
+	if os.environ.has_key('GIT_DIR'):
+		old_env_git_dir = os.environ['GIT_DIR']
+	if a_wd != None:
+		os.environ['GIT_DIR'] = os.path.join (a_wd, ".git")
+	ret = execute_cmd("/usr/bin/git %s" % (a_git_cmd) , a_wd, a_out)
+	os.environ['GIT_DIR'] = old_env_git_dir
+	return ret
+
+def execute_cmd(a_cmd, a_wd="", a_out=None, a_msg="", exit_on_error=0):
+	import subprocess 
+
+	if a_out == None:
+		l_log = logthis_handle()
+	else:
+		l_log = a_out
+	l_out = l_log
+	l_err = l_log
+	#l_out = sys.stdout
+	#l_err = sys.stderr
+	log_txt = ""
+
+	add_operation (a_cmd, a_wd)
+
+	r = 0
+	retcode = 0
+	err = ""
+	try:
+		if a_wd:
+			log_txt +=  "[%s@%s] Execute: %s \n" % (os.getcwd(), a_wd, a_cmd) 
+		else:
+			log_txt +=  "[%s] Execute: %s \n" % (os.getcwd(), a_cmd) 
+		retcode = subprocess.call(a_cmd,0, None, None, l_out, l_err, None, False, True, a_wd)
+
+		r = retcode
+		log_txt = "[%d] %s" % (r, log_txt)
+		if r < 0:
+			err = "Command was terminated by signal (retcode=%d)" %(-r)
+			log_txt += "%s\n" % (err) 
+	except OSError, e:
+		r = -1
+		err = "Execution failed: %s" % (e)
+		log_txt += "%s\n" % (err)
+		logthis_traceback(l_log)
+	except:
+		r = -1
+		err = "Execution interrupted"
+		log_txt += "%s\n" % (err)
+
+	if r and r != -1:
+		if len(a_msg) > 0:
+			log_txt += "Error: %s (%s error=%d: %s)\n" % (a_msg, err, r, os.strerror (r))
+		else:
+			log_txt += "Error: (%s error=%d: %s)\n" % (err, r, os.strerror (r))
+		if exit_on_error == 1:
+			log_txt += "Exit on Error (%s)\n" % (err)
+			sys.exit()
+
+	logthis_handle_release(l_log)
+	if len(log_txt) > 0:
+		logthis (log_txt)
+	return r
+
+def folder_exists(fn):
+	return os.path.exists(fn)
+
+def folder_is_empty(fn):
+	return folder_exists(fn) and len (os.listdir(fn)) == 0
+
+def execute_and_return_output(a_cmd):
+	logthis("Command: %s\n" % (a_cmd))
+	return os.popen(a_cmd).read()
+
+def git_execute_and_return_output(a_cmd):
+	global svnwc
+	old_env_git_dir = ''
+	if os.environ.has_key('GIT_DIR'):
+		old_env_git_dir = os.environ['GIT_DIR']
+	os.environ['GIT_DIR'] = os.path.join (svnwc, ".git")
+
+	l_out = execute_and_return_output("git %s" % (a_cmd))
+
+	os.environ['GIT_DIR'] = old_env_git_dir
+	return l_out
+
+def git_commit_logs(rev):
+	return git_execute_and_return_output("rev-list --pretty=raw --max-count=1 %s" % (rev))
+
+def git_commit_changes(rev,prev=None):
+	# execute_and_return_output("git diff-tree --root -r -M -C --find-copies-harder --name-status %s" % (rev))
+	if prev:
+		return git_execute_and_return_output("diff-tree --root -r -M -C --name-status %s %s" % (prev, rev))
+	else:
+		return git_execute_and_return_output("diff-tree --root -r -M -C --name-status %s" % (rev))
+
+def git_revisions(a,b=None):
+	if b == None:
+		l_out = git_execute_and_return_output("rev-list %s" % (a)).split("\n")
+	else:
+		l_out = git_execute_and_return_output("rev-list %s..%s" % (a, b)).split("\n")
+	if len(l_out[0]) == 0:
+		l_out = l_out[1:]
+	return l_out
+		
+
+def current_git_id():
+	#ret = git_execute_and_return_output("rev-list --max-count=1 HEAD").split("\n")
+	ret = git_execute_and_return_output("rev-parse --verify HEAD").split("\n")
+	return ret[0]
+
+def start_with(s,txt):
+	if len(s) >= len(txt):
+		if s[0:len(txt)] == txt:
+			return s[len(txt):]
+	else:
+		return None
+
+def text_date(s):
+	regexp = "^(.*)\s([^\s]*)\s([^\s]*)$"
+	p = re.compile(regexp)
+	result = p.search (s, 0)
+	if result:
+		dt = result.group(2)
+		tz = result.group(3)
+		return [result.group(1), "%s %s" % (dt, tz)]
+	else:
+		return [s, None]
+
+def to_svndate(d):
+	data = d.split(" ")
+	tz = data.pop()
+	dt = string.atoi (data.pop())
+	(tzh, tzm) = (0,0)
+	#(tzh, tzm) = timezone_offset(tz)
+	(ctzh, ctzm) = current_timezone_offset()
+	date = datetime.fromtimestamp(dt)
+	h = date.hour - tzh - ctzh
+	m = date.minute - tzm - ctzm
+	date = date.replace(hour=h, minute=m)
+	return "%s.Z" % (date.isoformat())
+
+current_timezone_offset_values=None
+def current_timezone_offset():
+	global current_timezone_offset_values
+	if current_timezone_offset_values == None:
+		s = execute_and_return_output("date -R")
+		p = s.rfind (' ')
+		if p > 0:
+			current_timezone_offset_values = timezone_offset(s[p+1:])
+		else:
+			current_timezone_offset_values = ''
+	return current_timezone_offset_values
+
+def timezone_offset(tz):
+	if tz == None or tz == '':
+		return (0,0)
+	else:
+		if tz[0] == '-':
+			tzh = -abs(int(tz[0:3]))
+			tzm = -int(tz[3:])
+		elif tz[0] == '+':
+			tzh = +abs(int(tz[0:3]))
+			tzm = +int(tz[3:])
+		else:
+			tzh = +abs(int(tz[0:2]))
+			tzm = +int(tz[2:])
+		return (tzh, tzm)
+
+
+def to_svnauthor(a):
+	global svnauthor, svnauthor_map
+	if svnauthor_map.has_key (a):
+		ret = svnauthor_map[a]
+	else:
+		ret = svnauthor
+	if ret == None:
+		p = a.find ('<', 0)
+		if p > 0:
+			s = a[:p-1]
+			s.strip()
+			s = s.lower()
+			ret = ""
+			for c in s:
+				if c in string.ascii_lowercase or c in string.digits:
+					ret += c
+				elif c in string.whitespace:
+					ret += '_'
+	svnauthor_map[a] = ret
+	return ret
+
+def file_to_remove_from_subversion(rev):
+	global svnwc
+
+
+def commit_info(rev,prev=None):
+	res = {}
+	log = None
+
+	s = git_commit_logs(rev)
+	lines = s.split ("\n")
+	for a_line in lines:
+		line = a_line.strip()
+		
+		if log != None:
+			log = "%s\n%s" % (log, a_line)
+		elif len(line) == 0:
+			log = ""
+		else:
+			t = start_with (line, "commit ")
+			if t and len(t) > 0:
+				res['commit'] = t
+			t = start_with (line, "author ")
+			if t and len(t) > 0:
+				(res['author'], res['author_date']) = text_date(t)
+			t = start_with (line, "committer ")
+			if t and len(t) > 0:
+				(res['committer'], res['date']) = text_date(t)
+	if log and len(log) > 0:
+		res['log'] = log.strip()
+
+	if res.has_key('author') and res.has_key('committer'):
+		if res['author'] == res['committer']:
+			del res['committer']
+	if res.has_key('author_date') and res.has_key('committer_date'):
+		if res['author_date'] == res['committer_date']:
+			del res['committer_date']
+		
+	s = git_commit_changes(rev,prev)
+	lines = s.split("\n")
+	ref = None
+	modified = [] # M file , T file
+	copied = [] #C file1 file2
+	renamed = [] #R file1 file2
+	added = [] # A file
+	deleted = [] # D file
+	unmerged = [] # U file
+	unknown = [] # X  ERROR !
+	commands = []
+	
+	for a_line in lines:
+		if ref == None:
+			ref = a_line
+		else:
+			line = a_line.strip()
+			if len(line) > 0:
+				p = line.find (' ', 0)
+				if p == -1:
+					p = line.find ('\t', 0)
+				if p > 0:
+					c = line[0]
+					if   c == "M" or c == "T":
+						f1 = line[p+1:]
+						modified.append (f1)
+						commands.append ("# Modification on %s" % (f1))
+					elif c == "A":
+						f1 = line[p+1:]
+						added.append (f1)
+						commands.append ("svn add --quiet --parents --no-auto-props --non-recursive %s" % (f1))
+					elif c == "D":
+						f1 = line[p+1:]
+						deleted.append (f1)
+						commands.append ("svn remove --quiet --force %s" % (f1))
+					elif c == "U":
+						f1 = line[p+1:]
+						unmerged.append (f1)
+						commands.append ("# Unmerged file %s" % (f1))
+					elif c == "C": # Copied
+						(f1, f2) = line[p+1:].split("\t")
+						copied.append ([f1, f2])
+						score = line[1:p]
+						if score == "100" and 0: # disabled since the file will already be there...
+							commands.append ("svn copy %s %s" % (f1, f2))
+						else:
+							commands.append ("svn add %s" % (f2))
+					elif c == "R": # Renamed
+						(f1, f2) = line[p+1:].split("\t")
+						renamed.append ([f1, f2])
+						score = line[1:p]
+						if score == "100" and 0: # disabled since the file will already be there...
+							commands.append ("svn rename %s %s" % (f1, f2))
+						else:
+							commands.append ("svn remove %s" % (f1))
+							commands.append ("svn add %s" % (f2))
+
+					else:
+						f1 = line[p+1:]
+						unknown.append (line[p+1:])
+						commands.append ("# Unknown operation [%s] on %s" % (line, f1))
+	path = {}
+	if len(modified) > 0: path['modified'] = modified
+	if len(copied) > 0: path['copied'] = copied
+	if len(renamed) > 0: path['renamed'] = renamed
+	if len(added) > 0: path['added'] = added
+	if len(deleted) > 0: path['deleted'] = deleted
+	if len(unmerged) > 0: path['unmerged'] = unmerged; exit_on_unexpected_case("[unmerged] found: %d .\n" % (len(unmerged)))
+	if len(unknown) > 0: path['unknown'] = unknown; exit_on_unexpected_case("[unknown] found: %d .\n" % (len(unknown)))
+
+	if len(path) > 0:
+		res['path'] = path
+	if len(commands) > 0:
+		res['commands'] = commands
+
+	return res
+
+def process_hook(a_oldrev, a_newrev, a_ref):
+	global gitrepo, gitref
+
+	doutput ("----post-receive:start----")
+	doutput ("GITREPO=%s OLDREV=%s NEWREV=%s REF=%s\n" % (gitrepo, oldrev, newrev, a_ref))
+	if a_ref != gitref:
+		doutput ("Branch other than [%s] are not mirrored\n" % (gitref))
+	else:
+		process_main(a_newrev, a_oldrev)
+
+	doutput ("----post-receive:end----")
+
+def process_main(a_newrev='HEAD', a_oldrev=None):
+	global gitrepo
+	global svnrepo, svnwc, svnmodule, svnroot, svnoptions
+	global last_git_id,previous_git_id
+
+	if not folder_exists("%s/.svn" % (svnwc)):
+		ret = execute_svn_cmd("ls %s" %(svnrepo))
+		if ret: # repo does not exists (or not accessible
+			doutput ("Create svn repo [%s]..." % (svnrepo))
+			svnroot = svnrepo[len("file://"):]
+			ret = execute_svnadmin_cmd("create --fs-type fsfs %s" % (svnroot))
+			if ret:
+				doutput ("Error when creating subversion repo [retcode=%s]" % (ret))
+			else:
+				if svnroot:
+					svnhook_fn = os.path.join (svnroot, "hooks", "pre-revprop-change")
+					save_into("#!/bin/sh\nexit 0;", svnhook_fn)
+					ret = execute_and_return_output("chmod a+x %s" % (svnhook_fn))
+				if len(svnmodule) > 0:
+					ret = execute_svn_cmd("mkdir -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
+					ret = execute_svn_cmd("checkout --quiet --ignore-externals %s/%s %s" % (svnrepo,svnmodule, svnwc))
+					ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
+		else: # repo exists, let's checkout it
+			ret = execute_svn_cmd("checkout %s%s %s" % (svnrepo,svnmodule, svnwc))
+			if ret:
+				doutput ("Error when checkout subversion repo [retcode=%s]" % (ret))
+
+	if not folder_exists("%s/.svn" % (svnwc)):
+		doutput("Subversion working copy does not exists")
+		sys.exit()
+
+	if folder_exists("%s/.git" % (svnwc)):
+		if not last_git_id:
+			last_git_id = current_git_id()
+		if not previous_git_id:
+			previous_git_id = last_git_id
+		if is_hook_processing:
+			# CHECK THIS
+			ret = execute_git_cmd("pull --no-commit " , svnwc)
+		else:
+			ret = execute_git_cmd("fetch " , svnwc)
+	else:
+		if not last_git_id:
+			last_git_id = None
+		if not previous_git_id:
+			previous_git_id = last_git_id
+		if gitbranch:
+			ret = execute_git_cmd("clone %s %s/.gittmp" % (gitrepo, svnwc))
+			ret = execute_git_cmd("checkout --track -b  \"%s\" \"origin/%s\" " % (gitbranch, gitbranch), "%s/.gittmp" % (svnwc))
+		else:
+			ret = execute_git_cmd("clone -n %s %s/.gittmp" % (gitrepo, svnwc))
+		ret = execute_cmd("mv .gittmp/.git .", svnwc)
+		ret = execute_cmd("\\rm -rf .gittmp", svnwc)
+
+	if a_oldrev != None:
+		refs = git_revisions (a_oldrev, a_newrev)
+	elif previous_git_id == None:
+		refs = git_revisions (a_newrev)
+	else:
+		refs = git_revisions (previous_git_id, a_newrev)
+	refs.reverse()
+
+	refs_count = len(refs)
+	refs_index = 0
+	for r in refs:
+		if not is_hook_processing:
+			refs_index = refs_index + 1
+			output(" [%d/%d] %s" %(refs_index, refs_count, r))
+		if len(r) > 5:
+			out = "-------------------------\n"
+			if previous_git_id:
+				info = commit_info(r,last_git_id)
+				previous_git_id = None
+			else:
+				info = commit_info(r)
+			author = info['author']
+			date = info['date']
+			if r != info['commit']:
+				out += "ERROR: not the same ref\n"
+			log = info['log']
+			log = "%s\n" % (log)
+			log = "\n%s-- Git-author: %s" % (log, author)
+			log = "\n%s-- Git-id: %s" % (log, info['commit'])
+			##log = "\n%s-- Date: %s" % (log, to_svndate(date))
+			
+			tmp_log_filename = svn_tmp_log_filename (r)
+			save_into (log, tmp_log_filename, False)
+
+			out += "%s\n" % log
+
+			cmds = ""
+			if info.has_key('commands'):
+				command_list = info['commands']
+				for cmd in command_list:
+					cmds += "%s\n" % (cmd)
+
+			if info.has_key('path'):
+				info_path = info['path']
+				if info_path.has_key('deleted'):
+					info_deleted = info_path['deleted']
+					new_remove_empty_folder_for_git_script()
+					for d in info_deleted:
+						cmds += "python %s \"%s\" \n" % (remove_empty_folder_for_git_script_filename(), d)
+
+			svn_commit_cmd = "svn %s commit " % (svnoptions)
+			svn_commit_cmd += " --with-revprop \"original-author=%s\" " % (info['author'])
+			svn_commit_cmd += " --with-revprop \"git-id=%s\" " % (r)
+			svn_commit_cmd += " --file %s \n" % (tmp_log_filename)
+			svn_commit_cmd += "svn update \n"
+			l_author = to_svnauthor (info['author'])
+			if l_author != None:
+				svn_commit_cmd += "svn %s propset svn:author \"%s\" --revprop -r HEAD \n" % (svnoptions, l_author)
+			svn_commit_cmd += "svn %s propset svn:date \"%s\" --revprop -r HEAD \n" % (svnoptions, to_svndate(info['author_date']))
+
+			cmds += "%s\n" % (svn_commit_cmd)
+
+			cmd_txt = "#!/bin/sh\n"
+			cmd_txt += "cd %s \n" % (svnwc)
+			cmd_txt += "\necho Git operations\n"
+			cmd_txt += "GIT_DIR=`pwd`/.git \n"
+			cmd_txt += "git reset --hard  %s\n" % (r)
+			#cmd_txt += "git merge -n --no-commit fastforward HEAD %s\n" % (r)
+			cmd_txt += "\necho Subversion operations\n"
+			cmd_txt += cmds
+			cmd_txt += "\necho Operations completed\n"
+
+			save_into (cmd_txt, os.path.join (svnwc, cmd_tmp_filename (r)))
+
+			ret = execute_cmd("/bin/sh %s" % (cmd_tmp_filename(r)), svnwc)
+			if not keep_tmp:
+				ret = execute_cmd("/bin/rm -f %s" % (cmd_tmp_filename(r)), svnwc)
+				ret = execute_cmd("/bin/rm -f %s" % (tmp_log_filename), svnwc)
+
+			if len(cmds) > 0: out += "\nCommand to execute:\n%s\n" % cmds
+			doutput (out)
+
+	if keep_tmp:
+		save_into (global_commands, global_commands_filename())
+
+def config_value(a_cfg, a_option, a_section='default', a_default=None, a_type='string'):
+	ret = None
+	if a_cfg.has_option (a_section, a_option):
+		if a_type == 'string':
+			ret = a_cfg.get(a_section, a_option)
+		elif a_type =='boolean':
+			ret = a_cfg.getboolean(a_section, a_option)
+		elif a_type == 'int':
+			ret = a_cfg.getint(a_section, a_option)
+	elif a_section != 'default':
+		ret = config_value(a_cfg, a_option, 'default', a_default, a_type)
+	elif a_default != None:
+		ret = a_default
+	return ret
+
+def get_config(a_cfg_fn, a_proj_name=None):
+	import ConfigParser
+
+	global logging, verbose, keep_tmp
+	global project_name, tmpdir
+	global svnwc, svnrepo, svnmodule, svnauthor
+	global svnroot, svnoptions
+	global gitrepo, gitref, gitbare, gitbranch
+	global svngit_outputdir
+	global is_hook_processing
+
+	### Custom variables ###
+
+	config = ConfigParser.ConfigParser()
+	config.read([a_cfg_fn,"hooks/%s" % (a_cfg_fn)])
+	if a_proj_name:
+		project_name = a_proj_name
+	else:
+		project_name = config_value(config, 'project')
+
+	svngit_outputdir = config_value(config, 'outputdir', project_name)
+	svnwc = config_value(config, 'svnwc', project_name)
+	svnrepo = config_value(config, 'svnrepo', project_name)
+	svnroot = config_value(config, 'svnroot', project_name, svnroot)
+	svnoptions = config_value(config, 'svnoptions', project_name, svnoptions)
+	tmpdir = config_value(config, 'tmpdir', project_name, tmpdir)
+	logging = config_value(config, 'logging', project_name, logging, 'boolean')
+	verbose = config_value(config, 'verbose', project_name, verbose, 'boolean')
+	keep_tmp = config_value(config, 'keep_tmp', project_name, keep_tmp, 'boolean')
+
+	svnauthor = config_value(config, 'svnauthor', project_name, svnauthor)
+	svnmodule = config_value(config, 'svnmodule', project_name, svnmodule)
+
+	if is_hook_processing:
+		gitrepo = os.getcwd()
+	else:
+		gitrepo = config_value(config, 'gitrepo', project_name, os.getcwd())
+
+	gitbranch = config_value(config, 'gitbranch', project_name, gitbranch)
+	gitref = config_value(config, 'gitref', project_name, gitref)
+	gitbare = config_value(config, 'gitbare', project_name, gitbare, 'boolean')
+
+def initialize():
+	global gitrepo
+	fn = tmp_folder()
+	if not os.path.exists(fn):
+		os.makedirs(fn)
+
+
+### global variables ###
+project_name = None
+svnwc = None
+svnauthor_map = {}
+svnauthor = None
+svnrepo = None
+svnmodule = '/trunk'
+gitbare = False
+gitrepo = None
+gitbranch = None
+gitref = "refs/heads/master"
+svngit_outputdir = "/tmp/git2svn/output"
+svnroot = None
+svnoptions = ''
+tmpdir = None
+
+logging = False
+verbose = False
+keep_tmp = False
+last_git_id = None
+previous_git_id = None
+last_cwd = None
+global_commands = None
+is_hook_processing = True
+logthis_file=None
+
+if __name__ == '__main__':
+	# from hook (oldrev, newrev, ref) = (sys.stdin.read()).split()
+	config_name = "git2svn"
+	if not "--hook" in sys.argv:
+		is_hook_processing = False
+		config_name = sys.argv[1]
+		if len(sys.argv) > 2:
+			project_name = sys.argv[2]
+			if len(sys.argv) > 3:
+				previous_git_id = sys.argv[3]
+				if len(sys.argv) > 4:
+					last_git_id = sys.argv[4]
+		oldrev = ""
+		newrev = ""
+		ref = ""
+	else:
+		is_hook_processing = True
+		oldrev = sys.argv[1]
+		newrev = sys.argv[2]
+		ref = sys.argv[3]
+		config_name = sys.argv[4]
+		if len(sys.argv) > 5:
+			project_name = sys.argv[5]
+	if config_name:
+		if config_name.find(".config") > 0:
+			config_name = config_name[:-len(".config")]
+		get_config("%s.config" % (config_name), project_name)
+		initialize()
+		if len(oldrev) > 0 and len(newrev) > 0 and len(ref) > 0:
+			# Launched as hook
+			if project_name and svngit_outputdir and svnwc and svnrepo and gitrepo and gitref:
+				config_ok = True
+			else:
+				config_ok = False
+			if config_ok:
+				process_hook (oldrev, newrev, ref)
+			else:
+				print "[hook:post-receive] Configuration is invalid"
+				print "project_name=%s" % project_name
+				print "svngit_outputdir=%s" % svngit_outputdir
+				print "svnwc=%s" % svnwc
+				print "svnrepo=%s" % svnrepo
+				print "svnmodule=%s" % svnmodule
+				print "gitrepo=%s" % gitrepo
+				print "gitref=%s" % gitref
+		else:
+			os.environ['GIT_DIR'] = gitrepo
+			process_main ()
+
+	logthis_handle_release()
+
