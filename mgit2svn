@@ -477,7 +477,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 					svnhook_fn = os.path.join (svnroot, "hooks", "pre-revprop-change")
 					save_into("#!/bin/sh\nexit 0;", svnhook_fn)
 					ret = execute_and_return_output("chmod a+x %s" % (svnhook_fn))
-				ret = execute_svn_cmd("mkdir -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
+				ret = execute_svn_cmd("mkdir --parents -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
 				ret = execute_svn_cmd("checkout --quiet --ignore-externals %s%s %s" % (svnrepo,svnmodule, svnwc))
 				ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
 		else: # repo exists, let's checkout it
