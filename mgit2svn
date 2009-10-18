@@ -17,10 +17,10 @@ def log_filename():
 	return os.path.join (tmp_folder(), "log")
 
 def svn_tmp_log_filename(r):
-	return os.path.join (tmp_folder(), "svngit_%s" % (r))
+	return os.path.join (tmp_folder(), ".log_%s" % (r))
 
 def cmd_tmp_filename(r):
-	return os.path.join (tmp_folder(), "cmd-%s" % (r))
+	return os.path.join (tmp_folder(), ".cmd-%s" % (r))
 
 def global_commands_filename():
 	return os.path.join (tmp_folder(), "cmd.sh")
@@ -66,6 +66,16 @@ def doutput (m):
 def output (m):
 	print (m)
 	logthis(m)
+
+def stripnl(s):
+	return s.strip("\n\t ")
+#	i = 0
+#	n = len(s)
+#	b = True
+#	while (b):
+#		print "%d:%s" % (i, s[i])
+#		b = (s[i] == ' ' or s[i] == "\t" or s[i] == "\n")
+#	return s[i+1:]
 
 def remove_empty_folder_for_git_script_filename():
 	return os.path.join (tmp_folder(), "remove_empty_folder_for_git_script.py")
@@ -476,7 +486,10 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 				if svnroot:
 					svnhook_fn = os.path.join (svnroot, "hooks", "pre-revprop-change")
 					save_into("#!/bin/sh\nexit 0;", svnhook_fn)
-					ret = execute_and_return_output("chmod a+x %s" % (svnhook_fn))
+					add_operation("echo \"#!/bin/sh\" > %s" % (svnhook_fn));
+					add_operation("echo \"exit 0;\" >> %s" % (svnhook_fn));
+					ret = execute_cmd("chmod a+x %s" % (svnhook_fn), svnroot)
+					
 				ret = execute_svn_cmd("mkdir --parents -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
 				ret = execute_svn_cmd("checkout --quiet --ignore-externals %s%s %s" % (svnrepo,svnmodule, svnwc))
 				ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
@@ -538,10 +551,10 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			date = info['date']
 			if r != info['commit']:
 				out += "ERROR: not the same ref\n"
-			log = info['log']
+			log = stripnl(info['log'])
 			log = "%s\n" % (log)
-			log = "\n%s-- Git-author: %s" % (log, author)
-			log = "\n%s-- Git-id: %s" % (log, info['commit'])
+			log = "%s\n-- Git-author: %s" % (log, author)
+			log = "%s\n-- Git-id: %s" % (log, info['commit'])
 			##log = "\n%s-- Date: %s" % (log, to_svndate(date))
 			
 			tmp_log_filename = svn_tmp_log_filename (r)
@@ -595,6 +608,15 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			save_into (cmd_txt, os.path.join (svnwc, cmd_tmp_filename (r)))
 
 			ret = execute_cmd("/bin/sh %s" % (cmd_tmp_filename(r)), svnwc)
+			
+			s =  execute_and_return_output("svn status %s | wc -l" % (svnwc)).strip()
+			if s == "0":
+				doutput("Verif: svn status OK [%s]\n" % (s))
+			else:
+				output("ERROR: svn status is NOT empty [ref=%s]" % (r))
+				s =  execute_and_return_output("svn status %s" % (svnwc))
+				doutput("ERROR: svn status is NOT empty. %s\n" % (s))
+				sys.exit()
 			if not keep_tmp:
 				ret = execute_cmd("/bin/rm -f %s" % (cmd_tmp_filename(r)), svnwc)
 				ret = execute_cmd("/bin/rm -f %s" % (tmp_log_filename), svnwc)
