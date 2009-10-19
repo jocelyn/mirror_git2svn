@@ -58,9 +58,12 @@ def save_into(txt, fn, with_nl=True):
 		h.write ('\n')
 	h.close()
 
-def doutput (m):
-	global verbose
-	if verbose: print (m)
+def doutput (m,out=False):
+	global verbose, is_hook_processing
+	if verbose: 
+		print (m)
+	elif out and not is_hook_processing:
+		print (m)
 	logthis(m)
 
 def output (m):
@@ -126,9 +129,16 @@ exit(retcode)
 		save_into (txt, fn)
 
 
+def exit_with_message(m):
+	global global_commands, keep_tmp
+	output(m)
+	if keep_tmp:
+		save_into (global_commands, global_commands_filename())
+	sys.exit(-1)
+
 def exit_on_unexpected_case(m):
 	output("[unknown] found.\n")
-	sys.exit(-1)
+	exit_with_message(m)
 
 def add_operation (a_cmd, a_dir=None):
 	global last_cwd, global_commands
@@ -179,13 +189,13 @@ def execute_cmd(a_cmd, a_wd="", a_out=None, a_msg="", exit_on_error=0):
 	err = ""
 	try:
 		if a_wd:
-			log_txt +=  "[%s@%s] Execute: %s \n" % (os.getcwd(), a_wd, a_cmd) 
+			logthis("[%s@%s] Execute: %s \n" % (os.getcwd(), a_wd, a_cmd))
 		else:
-			log_txt +=  "[%s] Execute: %s \n" % (os.getcwd(), a_cmd) 
+			log_txt("[%s] Execute: %s \n" % (os.getcwd(), a_cmd))
 		retcode = subprocess.call(a_cmd,0, None, None, l_out, l_err, None, False, True, a_wd)
 
 		r = retcode
-		log_txt = "[%d] %s" % (r, log_txt)
+		log_txt += "[%d] %s" % (r, log_txt)
 		if r < 0:
 			err = "Command was terminated by signal (retcode=%d)" %(-r)
 			log_txt += "%s\n" % (err) 
@@ -206,7 +216,7 @@ def execute_cmd(a_cmd, a_wd="", a_out=None, a_msg="", exit_on_error=0):
 			log_txt += "Error: (%s error=%d: %s)\n" % (err, r, os.strerror (r))
 		if exit_on_error == 1:
 			log_txt += "Exit on Error (%s)\n" % (err)
-			sys.exit()
+			exit_with_message(err)
 
 	logthis_handle_release(l_log)
 	if len(log_txt) > 0:
@@ -233,6 +243,7 @@ def git_execute_and_return_output(a_cmd):
 	l_out = execute_and_return_output("git %s" % (a_cmd))
 
 	os.environ['GIT_DIR'] = old_env_git_dir
+	doutput(l_out)
 	return l_out
 
 def git_commit_logs(rev):
@@ -247,11 +258,9 @@ def git_commit_changes(rev,prev=None):
 
 def git_revisions(a,b=None):
 	if b == None:
-		l_out = git_execute_and_return_output("rev-list %s" % (a)).split("\n")
+		l_out = git_execute_and_return_output("rev-list --first-parent %s" % (a)).split("\n")
 	else:
-		l_out = git_execute_and_return_output("rev-list %s..%s" % (a, b)).split("\n")
-	if len(l_out[0]) == 0:
-		l_out = l_out[1:]
+		l_out = git_execute_and_return_output("rev-list --first-parent %s..%s" % (a, b)).split("\n")
 	return l_out
 		
 
@@ -426,7 +435,7 @@ def commit_info(rev,prev=None):
 						if score == "100" and 0: # disabled since the file will already be there...
 							commands.append ("svn copy %s %s" % (f1, f2))
 						else:
-							commands.append ("svn add %s" % (f2))
+							commands.append ("svn add --quiet --parents --no-auto-props --non-recursive %s" % (f2))
 					elif c == "R": # Renamed
 						(f1, f2) = line[p+1:].split("\t")
 						renamed.append ([f1, f2])
@@ -435,7 +444,7 @@ def commit_info(rev,prev=None):
 							commands.append ("svn rename %s %s" % (f1, f2))
 						else:
 							commands.append ("svn remove %s" % (f1))
-							commands.append ("svn add %s" % (f2))
+							commands.append ("svn add --quiet --parents --no-auto-props --non-recursive %s" % (f2))
 
 					else:
 						f1 = line[p+1:]
@@ -499,8 +508,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 				output ("Error when checkout subversion repo [retcode=%s]" % (ret))
 
 	if not folder_exists("%s/.svn" % (svnwc)):
-		output("Subversion working copy does not exists")
-		sys.exit()
+		exit_with_message("Subversion working copy does not exists")
 
 	if folder_exists("%s/.git" % (svnwc)):
 		if not last_git_id:
@@ -533,20 +541,22 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 	else:
 		refs = git_revisions (previous_git_id, a_newrev)
 	refs.reverse()
+	if len(refs[0]) == 0:
+		refs = refs[1:]
 
 	refs_count = len(refs)
 	refs_index = 0
+	prev_r = previous_git_id
 	for r in refs:
-		if not is_hook_processing:
-			refs_index = refs_index + 1
-			output(" [%d/%d] %s" %(refs_index, refs_count, r))
+		refs_index = refs_index + 1
+		doutput(" [%d/%d] %s" %(refs_index, refs_count, r), True)
 		if len(r) > 5:
 			out = "-------------------------\n"
 			if previous_git_id:
 				info = commit_info(r,last_git_id)
 				previous_git_id = None
 			else:
-				info = commit_info(r)
+				info = commit_info(r, prev_r)
 			author = info['author']
 			date = info['date']
 			if r != info['commit']:
@@ -586,7 +596,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			svn_commit_cmd = "svn %s commit " % (svnoptions)
 			svn_commit_cmd += " --with-revprop \"original-author=%s\" " % (info['author'])
 			svn_commit_cmd += " --with-revprop \"git-id=%s\" " % (r)
-			svn_commit_cmd += " --file %s \n" % (tmp_log_filename)
+			svn_commit_cmd += " --file %s --encoding=utf-8 \n" % (tmp_log_filename)
 			svn_commit_cmd += "svn update \n"
 			l_author = to_svnauthor (info['author'])
 			if l_author != None:
@@ -609,20 +619,21 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 
 			ret = execute_cmd("/bin/sh %s" % (cmd_tmp_filename(r)), svnwc)
 			
-			s =  execute_and_return_output("svn status %s | wc -l" % (svnwc)).strip()
-			if s == "0":
-				doutput("Verif: svn status OK [%s]\n" % (s))
-			else:
-				output("ERROR: svn status is NOT empty [ref=%s]" % (r))
-				s =  execute_and_return_output("svn status %s" % (svnwc))
-				doutput("ERROR: svn status is NOT empty. %s\n" % (s))
-				sys.exit()
 			if not keep_tmp:
 				ret = execute_cmd("/bin/rm -f %s" % (cmd_tmp_filename(r)), svnwc)
 				ret = execute_cmd("/bin/rm -f %s" % (tmp_log_filename), svnwc)
 
 			if len(cmds) > 0: out += "\nCommand to execute:\n%s\n" % cmds
 			doutput (out)
+			s =  execute_and_return_output("svn status %s | wc -l" % (svnwc)).strip()
+			if s == "0":
+				doutput("Verif: svn status OK [%s]\n" % (s))
+			else:
+				s =  execute_and_return_output("svn status %s" % (svnwc))
+				doutput("ERROR: svn status is NOT empty. %s\n" % (s))
+				exit_with_message("ERROR: svn status is NOT empty [ref=%s]" % (r))
+
+		doutput("END [%d/%d] %s" %(refs_index, refs_count, r))
 
 	if keep_tmp:
 		save_into (global_commands, global_commands_filename())
