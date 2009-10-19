@@ -230,8 +230,10 @@ def folder_is_empty(fn):
 	return folder_exists(fn) and len (os.listdir(fn)) == 0
 
 def execute_and_return_output(a_cmd):
-	logthis("Command: %s\n" % (a_cmd))
-	return os.popen(a_cmd).read()
+	doutput("Command: %s\n" % (a_cmd))
+	s = os.popen(a_cmd).read()
+	doutput("Command Output: %s\n" % (s))
+	return s
 
 def git_execute_and_return_output(a_cmd):
 	global svnwc
@@ -243,7 +245,6 @@ def git_execute_and_return_output(a_cmd):
 	l_out = execute_and_return_output("git %s" % (a_cmd))
 
 	os.environ['GIT_DIR'] = old_env_git_dir
-	doutput("Exec output=%s\n" % (l_out))
 	return l_out
 
 def git_commit_logs(rev):
@@ -255,6 +256,7 @@ def git_commit_changes(rev,prev=None):
 		return git_execute_and_return_output("diff-tree --root -r -M -C --name-status %s %s" % (prev, rev))
 	else:
 		return git_execute_and_return_output("diff-tree --root -r -M -C --name-status %s" % (rev))
+
 
 def git_revisions(a,b=None):
 	if b == None:
