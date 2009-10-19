@@ -243,7 +243,7 @@ def git_execute_and_return_output(a_cmd):
 	l_out = execute_and_return_output("git %s" % (a_cmd))
 
 	os.environ['GIT_DIR'] = old_env_git_dir
-	doutput(l_out)
+	doutput("Exec output=%s\n" % (l_out))
 	return l_out
 
 def git_commit_logs(rev):
@@ -632,6 +632,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 				s =  execute_and_return_output("svn status %s" % (svnwc))
 				doutput("ERROR: svn status is NOT empty. %s\n" % (s))
 				exit_with_message("ERROR: svn status is NOT empty [ref=%s]" % (r))
+			prev_r = r
 
 		doutput("END [%d/%d] %s" %(refs_index, refs_count, r))
 
