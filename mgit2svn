@@ -124,7 +124,7 @@ def remove_empty_for_git_folder (a_path):
 			
 cmd = remove_empty_for_git_folder(sys.argv[1])
 retcode = subprocess.call(cmd, 0, None, None, sys.stdout, sys.stderr, None, False, True)
-exit(retcode)
+sys.exit(retcode)
 """
 		save_into (txt, fn)
 
