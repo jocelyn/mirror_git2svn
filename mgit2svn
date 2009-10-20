@@ -1,5 +1,34 @@
 #!/usr/bin/python
 
+# Short doc:
+# ./mgit2svn the_project.config the_project_name
+#
+# Example: the_project.config
+#
+#
+#  [default]
+#  project: foobar
+#  
+#  [foobar]
+#  verbose: false
+#  logging: false
+#  keep_tmp: false
+#  
+#  git2svndir: /home/users/j/jf/jfiat/git2svn
+#  outputdir: %(git2svndir)s/output/mirrorgit2svn
+#  tmpdir: %(outputdir)s/tmp
+#  svnwc: %(outputdir)s/wc
+#  #svnroot: %(outputdir)s/svn
+#  #svnrepo: file://%(svnroot)s
+#  svnrepo: https://mirror-git2svn.svn.sourceforge.net/svnroot/mirror-git2svn
+#  svnoptions: --username foo --password bar --non-interactive --no-auth-cache
+#  svnmodule: /trunk
+#  
+#  gitrepo: /home/scm_git/m/mi/mirror-git2svn/mirror-git2svn
+#  gitref: refs/heads/master
+#  gitbare: true
+
+
 import sys;
 import re;
 import os;
