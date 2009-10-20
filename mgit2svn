@@ -191,7 +191,7 @@ def execute_cmd(a_cmd, a_wd="", a_out=None, a_msg="", exit_on_error=0):
 		if a_wd:
 			logthis("[%s@%s] Execute: %s \n" % (os.getcwd(), a_wd, a_cmd))
 		else:
-			log_txt("[%s] Execute: %s \n" % (os.getcwd(), a_cmd))
+			logthis("[%s] Execute: %s \n" % (os.getcwd(), a_cmd))
 		retcode = subprocess.call(a_cmd,0, None, None, l_out, l_err, None, False, True, a_wd)
 
 		r = retcode
@@ -208,6 +208,7 @@ def execute_cmd(a_cmd, a_wd="", a_out=None, a_msg="", exit_on_error=0):
 		r = -1
 		err = "Execution interrupted"
 		log_txt += "%s\n" % (err)
+		logthis_traceback(l_log)
 
 	if r and r != -1:
 		if len(a_msg) > 0:
