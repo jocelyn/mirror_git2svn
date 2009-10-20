@@ -137,7 +137,7 @@ def exit_with_message(m):
 	sys.exit(-1)
 
 def exit_on_unexpected_case(m):
-	output("[unknown] found.\n")
+	output("[unknown] found.")
 	exit_with_message(m)
 
 def add_operation (a_cmd, a_dir=None):
@@ -189,9 +189,9 @@ def execute_cmd(a_cmd, a_wd="", a_out=None, a_msg="", exit_on_error=0):
 	err = ""
 	try:
 		if a_wd:
-			logthis("[%s@%s] Execute: %s \n" % (os.getcwd(), a_wd, a_cmd))
+			logthis("[%s@%s] Execute: %s" % (os.getcwd(), a_wd, a_cmd))
 		else:
-			logthis("[%s] Execute: %s \n" % (os.getcwd(), a_cmd))
+			logthis("[%s] Execute: %s" % (os.getcwd(), a_cmd))
 		retcode = subprocess.call(a_cmd,0, None, None, l_out, l_err, None, False, True, a_wd)
 
 		r = retcode
@@ -209,7 +209,6 @@ def execute_cmd(a_cmd, a_wd="", a_out=None, a_msg="", exit_on_error=0):
 		err = "Execution interrupted"
 		log_txt += "%s\n" % (err)
 		logthis_traceback(l_log)
-
 	if r and r != -1:
 		if len(a_msg) > 0:
 			log_txt += "Error: %s (%s error=%d: %s)\n" % (a_msg, err, r, os.strerror (r))
@@ -231,9 +230,9 @@ def folder_is_empty(fn):
 	return folder_exists(fn) and len (os.listdir(fn)) == 0
 
 def execute_and_return_output(a_cmd):
-	doutput("Command: %s\n" % (a_cmd))
+	doutput("Command: %s" % (a_cmd))
 	s = os.popen(a_cmd).read()
-	doutput("Command Output: %s\n" % (s))
+	doutput("Command Output: %s" % (s))
 	return s
 
 def git_execute_and_return_output(a_cmd):
@@ -473,9 +472,9 @@ def process_hook(a_oldrev, a_newrev, a_ref):
 	global gitrepo, gitref
 
 	doutput ("----post-receive:start----")
-	doutput ("GITREPO=%s OLDREV=%s NEWREV=%s REF=%s\n" % (gitrepo, oldrev, newrev, a_ref))
+	doutput ("GITREPO=%s OLDREV=%s NEWREV=%s REF=%s" % (gitrepo, oldrev, newrev, a_ref))
 	if a_ref != gitref:
-		doutput ("Branch other than [%s] are not mirrored\n" % (gitref))
+		doutput ("Branch other than [%s] are not mirrored" % (gitref))
 	else:
 		process_main(a_newrev, a_oldrev)
 
@@ -485,6 +484,8 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 	global gitrepo
 	global svnrepo, svnwc, svnmodule, svnroot, svnoptions
 	global last_git_id,previous_git_id
+
+	svn_repo_ready = False
 
 	if not folder_exists("%s/.svn" % (svnwc)):
 		ret = execute_svn_cmd("ls %s" %(svnrepo))
@@ -502,13 +503,25 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 					add_operation("echo \"exit 0;\" >> %s" % (svnhook_fn));
 					ret = execute_cmd("chmod a+x %s" % (svnhook_fn), svnroot)
 					
-				ret = execute_svn_cmd("mkdir --parents -m \"This directory will host the upstream sources\" %s%s" % (svnrepo,svnmodule))
-				ret = execute_svn_cmd("checkout --quiet --ignore-externals %s%s %s" % (svnrepo,svnmodule, svnwc))
-				ret = execute_svn_cmd("propset svn:ignore --quiet .git . ", svnwc)
-		else: # repo exists, let's checkout it
+				svn_repo_ready = True
+
+		else: # repo exists
+			svn_repo_ready = True
+					
+
+		if svn_repo_ready:
+			# svn repo ready, let's checkout it
+			if len(svnmodule) > 0:
+				ret = execute_svn_cmd("ls %s%s" %(svnrepo,svnmodule))
+				if ret: # path does not exists yet
+					ret = execute_svn_cmd("%s mkdir --parents -m \"This directory will host the upstream sources\" %s%s" % (svnoptions, svnrepo,svnmodule))
+
 			ret = execute_svn_cmd("checkout --quiet --ignore-externals %s%s %s" % (svnrepo,svnmodule, svnwc))
 			if ret:
 				output ("Error when checkout subversion repo [retcode=%s]" % (ret))
+			else:
+				ret = execute_svn_cmd("%s propset svn:ignore --quiet .git . " %(svnoptions), svnwc)
+
 
 	if not folder_exists("%s/.svn" % (svnwc)):
 		exit_with_message("Subversion working copy does not exists")
@@ -594,7 +607,7 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 					for (d,t) in info_renamed:
 						cmds += "python %s \"%s\" \n" % (remove_empty_folder_for_git_script_filename(), d)
 
-			doutput("Commands=%s\n" % (cmds))
+			doutput("Commands=%s" % (cmds))
 
 			svn_commit_cmd = "svn %s commit " % (svnoptions)
 			svn_commit_cmd += " --with-revprop \"original-author=%s\" " % (info['author'])
@@ -630,10 +643,10 @@ def process_main(a_newrev='HEAD', a_oldrev=None):
 			doutput (out)
 			s =  execute_and_return_output("svn status %s | wc -l" % (svnwc)).strip()
 			if s == "0":
-				doutput("Verif: svn status OK [%s]\n" % (s))
+				doutput("Verif: svn status OK [%s]" % (s))
 			else:
 				s =  execute_and_return_output("svn status %s" % (svnwc))
-				doutput("ERROR: svn status is NOT empty. %s\n" % (s))
+				doutput("ERROR: svn status is NOT empty. %s" % (s))
 				exit_with_message("ERROR: svn status is NOT empty [ref=%s]" % (r))
 			prev_r = r
 
