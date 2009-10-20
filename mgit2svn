@@ -708,29 +708,38 @@ def get_config(a_cfg_fn, a_proj_name=None):
 	global svnroot, svnoptions
 	global gitrepo, gitref, gitbare, gitbranch
 	global svngit_outputdir
-	global is_hook_processing
+	global is_hook_processingo
+	l_cwd = os.getcwd()
 
 	### Custom variables ###
 
 	config = ConfigParser.ConfigParser()
-	config.read([a_cfg_fn,"hooks/%s" % (a_cfg_fn)])
+	config.read([a_cfg_fn, "hooks/%s" % (a_cfg_fn)])
 	if a_proj_name:
 		project_name = a_proj_name
 	else:
 		project_name = config_value(config, 'project')
 
-	svngit_outputdir = config_value(config, 'outputdir', project_name)
-	svnwc = config_value(config, 'svnwc', project_name)
+	svngit_outputdir = config_value(config, 'outputdir', project_name, os.path.join(l_cwd, 'output', project_name))
+
 	svnrepo = config_value(config, 'svnrepo', project_name)
-	svnroot = config_value(config, 'svnroot', project_name, svnroot)
+	svnroot = config_value(config, 'svnroot', project_name)
+	if svnrepo == None:
+		if svnroot == None:
+			svnroot = os.path.abspath (os.path.join(svngit_outputdir, 'svn'))
+		svnrepo = "file://%s" % (svnroot)
+
 	svnoptions = config_value(config, 'svnoptions', project_name, svnoptions)
-	tmpdir = config_value(config, 'tmpdir', project_name, tmpdir)
-	logging = config_value(config, 'logging', project_name, logging, 'boolean')
-	verbose = config_value(config, 'verbose', project_name, verbose, 'boolean')
-	keep_tmp = config_value(config, 'keep_tmp', project_name, keep_tmp, 'boolean')
+
+	svnwc = config_value(config, 'svnwc', project_name, os.path.join(svngit_outputdir, 'wc'))
+	tmpdir = config_value(config, 'tmpdir', project_name, os.path.join(svngit_outputdir, 'tmp'))
 
 	svnauthor = config_value(config, 'svnauthor', project_name, svnauthor)
 	svnmodule = config_value(config, 'svnmodule', project_name, svnmodule)
+
+	logging = config_value(config, 'logging', project_name, logging, 'boolean')
+	verbose = config_value(config, 'verbose', project_name, verbose, 'boolean')
+	keep_tmp = config_value(config, 'keep_tmp', project_name, keep_tmp, 'boolean')
 
 	if is_hook_processing:
 		gitrepo = os.getcwd()
@@ -753,15 +762,15 @@ project_name = None
 svnwc = None
 svnauthor_map = {}
 svnauthor = None
-svnrepo = None
 svnmodule = '/trunk'
+svnrepo = None
+svnroot = None
+svnoptions = ' --non-interactive --no-auth-cache '
 gitbare = False
 gitrepo = None
 gitbranch = None
-gitref = "refs/heads/master"
-svngit_outputdir = "/tmp/git2svn/output"
-svnroot = None
-svnoptions = ''
+gitref = 'refs/heads/master'
+svngit_outputdir = '/tmp/git2svn/output'
 tmpdir = None
 
 logging = False
@@ -776,8 +785,8 @@ logthis_file=None
 
 if __name__ == '__main__':
 	# from hook (oldrev, newrev, ref) = (sys.stdin.read()).split()
-	config_name = "git2svn"
-	if not "--hook" in sys.argv:
+	config_name = 'git2svn'
+	if not '--hook' in sys.argv:
 		is_hook_processing = False
 		config_name = sys.argv[1]
 		if len(sys.argv) > 2:
@@ -786,9 +795,9 @@ if __name__ == '__main__':
 				previous_git_id = sys.argv[3]
 				if len(sys.argv) > 4:
 					last_git_id = sys.argv[4]
-		oldrev = ""
-		newrev = ""
-		ref = ""
+		oldrev = ''
+		newrev = ''
+		ref = ''
 	else:
 		is_hook_processing = True
 		oldrev = sys.argv[1]
@@ -798,8 +807,8 @@ if __name__ == '__main__':
 		if len(sys.argv) > 5:
 			project_name = sys.argv[5]
 	if config_name:
-		if config_name.find(".config") > 0:
-			config_name = config_name[:-len(".config")]
+		if config_name.find('.config') > 0:
+			config_name = config_name[:-len('.config')]
 		get_config("%s.config" % (config_name), project_name)
 		initialize()
 		if len(oldrev) > 0 and len(newrev) > 0 and len(ref) > 0:
@@ -811,7 +820,7 @@ if __name__ == '__main__':
 			if config_ok:
 				process_hook (oldrev, newrev, ref)
 			else:
-				print "[hook:post-receive] Configuration is invalid"
+				print '[hook:post-receive] Configuration is invalid'
 				print "project_name=%s" % project_name
 				print "svngit_outputdir=%s" % svngit_outputdir
 				print "svnwc=%s" % svnwc
